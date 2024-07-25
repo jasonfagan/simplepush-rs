@@ -50,9 +50,9 @@ impl Message {
     pub fn new(key: &str, title: Option<&str>, message: &str, event: Option<&str>) -> Self {
         Message {
             key: String::from(key),
-            title: Self::to_string(title),
+            title: Self::stringify(title),
             message: String::from(message),
-            event: Self::to_string(event),
+            event: Self::stringify(event),
             encrypt: false,
             password: None,
             salt: None,
@@ -69,16 +69,16 @@ impl Message {
     ) -> Self {
         Message {
             key: String::from(key),
-            title: Self::to_string(title),
+            title: Self::stringify(title),
             message: String::from(message),
-            event: Self::to_string(event),
+            event: Self::stringify(event),
             encrypt: true,
             password: Some(String::from(password)),
-            salt: Self::to_string(salt.or(Some(DEFAULT_SALT))),
+            salt: Self::stringify(salt.or(Some(DEFAULT_SALT))),
         }
     }
 
-    fn to_string(s: Option<&str>) -> Option<String> {
+    fn stringify(s: Option<&str>) -> Option<String> {
         s.map(|t| String::from(t))
     }
 }
@@ -147,7 +147,7 @@ impl SimplePush {
                 None => None,
             };
 
-            message_iv = Some(SimplePush::to_hex_string(iv.to_vec()).to_ascii_uppercase());
+            message_iv = Some(SimplePush::hexify(iv.to_vec()).to_ascii_uppercase());
             encrypted = Some(true);
         } else {
             msg = message.message.to_owned();
@@ -166,7 +166,7 @@ impl SimplePush {
         }
     }
 
-    fn to_hex_string(bytes: Vec<u8>) -> String {
+    fn hexify(bytes: Vec<u8>) -> String {
         let strs: Vec<String> = bytes.iter().map(|b| format!("{:02X}", b)).collect();
         strs.join("")
     }
