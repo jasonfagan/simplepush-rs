@@ -24,6 +24,8 @@ pub struct Message {
     message: String,
     /// The event the message should be associated with
     event: Option<String>,
+    /// Actions for feedback message
+    actions: Option<Vec<String>>,
     /// If true, the message will be sent with end-to-end encrypted using the provided salt & password
     encrypt: bool,
     /// Password if the message is to be encrypted
@@ -41,18 +43,27 @@ struct Payload {
     #[serde(skip_serializing_if = "Option::is_none")]
     event: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    actions: Option<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     encrypted: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     iv: Option<String>,
 }
 
 impl Message {
-    pub fn new(key: &str, title: Option<&str>, message: &str, event: Option<&str>) -> Self {
+    pub fn new(
+        key: &str,
+        title: Option<&str>,
+        message: &str,
+        event: Option<&str>,
+        actions: Option<Vec<&str>>,
+    ) -> Self {
         Message {
             key: String::from(key),
             title: Self::stringify(title),
             message: String::from(message),
             event: Self::stringify(event),
+            actions: Self::stringify_vec(actions),
             encrypt: false,
             password: None,
             salt: None,
@@ -64,6 +75,7 @@ impl Message {
         title: Option<&str>,
         message: &str,
         event: Option<&str>,
+        actions: Option<Vec<&str>>,
         password: &str,
         salt: Option<&str>,
     ) -> Self {
@@ -72,6 +84,7 @@ impl Message {
             title: Self::stringify(title),
             message: String::from(message),
             event: Self::stringify(event),
+            actions: Self::stringify_vec(actions),
             encrypt: true,
             password: Some(String::from(password)),
             salt: Self::stringify(salt.or(Some(DEFAULT_SALT))),
@@ -80,6 +93,10 @@ impl Message {
 
     fn stringify(s: Option<&str>) -> Option<String> {
         s.map(|t| String::from(t))
+    }
+
+    fn stringify_vec(s: Option<Vec<&str>>) -> Option<Vec<String>> {
+        s.map(|t| t.iter().map(|s| String::from(*s)).collect())
     }
 }
 
@@ -122,6 +139,7 @@ impl SimplePush {
         let encrypted: Option<bool>;
         let msg: String;
         let title: Option<String>;
+        let actions: Option<Vec<String>>;
 
         if message.encrypt {
             let salt = message.salt.to_owned().expect("salt was None");
@@ -147,20 +165,34 @@ impl SimplePush {
                 None => None,
             };
 
+            actions = match message.actions.to_owned() {
+                Some(t) => Some(
+                    t.iter()
+                        .map(|s| {
+                            SimplePush::encrypt(&key[0..16], &iv, s.clone().into_bytes())
+                                .expect("encryption failed")
+                        })
+                        .collect(),
+                ),
+                None => None,
+            };
+
             message_iv = Some(SimplePush::hexify(iv.to_vec()).to_ascii_uppercase());
             encrypted = Some(true);
         } else {
             msg = message.message.to_owned();
             title = message.title.to_owned();
+            actions = message.actions.to_owned();
             encrypted = None;
             message_iv = None;
         }
 
         Payload {
             key: message.key.to_owned(),
-            title: title,
-            msg: msg,
+            title,
+            msg,
             event: message.event.to_owned(),
+            actions,
             encrypted: encrypted.map(|v| v.to_string()),
             iv: message_iv,
         }
@@ -219,20 +251,20 @@ mod tests {
 
     #[test]
     fn test_empty_key() {
-        let result = SimplePush::send(Message::new("", Some("title"), "message", None));
+        let result = SimplePush::send(Message::new("", Some("title"), "message", None, None));
         assert!(result.is_err_and(|e| e == String::from("key is required")));
     }
 
     #[test]
     fn test_empty_message() {
-        let result = SimplePush::send(Message::new("key", None, "", None));
+        let result = SimplePush::send(Message::new("key", None, "", None, None));
         assert!(result.is_err_and(|e| e == String::from("a message or title is required")));
     }
 
     #[test]
     fn test_empty_password_with_encryption() {
         let result = SimplePush::send(Message::new_with_encryption(
-            "key", None, "message", None, "", None,
+            "key", None, "message", None, None, "", None,
         ));
         assert!(result.is_err_and(|e| e == String::from("password is required for encryption")));
     }
