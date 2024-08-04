@@ -264,13 +264,11 @@ impl SimplePush {
             .json(&SimplePush::process_message(&message))
             .send();
         match response {
-            Ok(r) => {
-                println!("{}", r.status());
+            Ok(_) => {
                 Ok(())
             }
             Err(e) => {
-                println!("{}", e);
-                Err("e".to_string())
+                Err(e.to_string())
             }
         }
     }
