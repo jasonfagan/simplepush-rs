@@ -1,3 +1,6 @@
+//! # SimplePush: A client for sending notifications via the simplepush.io API.
+//!
+//! See <https://simplepush.io> for more details.
 extern crate crypto;
 extern crate rand;
 
@@ -9,31 +12,13 @@ use crypto::{aes, blockmodes, buffer, symmetriccipher};
 use rand::Rng;
 use serde::Serialize;
 
-/// Default encryption salt, you should really provide your own
-pub static DEFAULT_SALT: &str = "A9F361C70BCB6182";
+// Default encryption salt, you should really provide your own
+static DEFAULT_SALT: &str = "A9F361C70BCB6182";
 
-/// API endpoint
+// API endpoint
 static API_URL: &str = "https://api.simplepush.io";
 
-pub struct Message {
-    /// Your simplepush.io key
-    key: String,
-    /// Title of the message
-    title: Option<String>,
-    /// Message body
-    message: String,
-    /// The event the message should be associated with
-    event: Option<String>,
-    /// Actions for feedback message
-    actions: Option<Vec<String>>,
-    /// If true, the message will be sent with end-to-end encrypted using the provided salt & password
-    encrypt: bool,
-    /// Password if the message is to be encrypted
-    password: Option<String>,
-    /// If set, this salt will be used for encryption, otherwise the default will be used
-    salt: Option<String>,
-}
-
+/// SimplePush API payload
 #[derive(Serialize)]
 struct Payload {
     key: String,
@@ -50,7 +35,28 @@ struct Payload {
     iv: Option<String>,
 }
 
+/// SimplePush message data
+pub struct Message {
+    /// Your simplepush.io key
+    pub key: String,
+    /// Title of the message
+    pub title: Option<String>,
+    /// Message body
+    pub message: String,
+    /// The event the message should be associated with
+    pub event: Option<String>,
+    /// Actions for feedback message, only simple actions are supported at this time
+    pub actions: Option<Vec<String>>,
+    /// If true, the message will be sent with end-to-end encrypted using the provided password & salt
+    pub encrypt: bool,
+    /// Password if the message is to be encrypted
+    pub password: Option<String>,
+    /// If set, this salt will be used for encryption, otherwise the `DEFAULT_SALT` will be used
+    pub salt: Option<String>,
+}
+
 impl Message {
+    /// Create a new notification message
     pub fn new(
         key: &str,
         title: Option<&str>,
@@ -70,6 +76,7 @@ impl Message {
         }
     }
 
+    /// Create a new notification message with encryption
     pub fn new_with_encryption(
         key: &str,
         title: Option<&str>,
@@ -92,7 +99,7 @@ impl Message {
     }
 
     fn stringify(s: Option<&str>) -> Option<String> {
-        s.map(|t| String::from(t))
+        s.map(String::from)
     }
 
     fn stringify_vec(s: Option<Vec<&str>>) -> Option<Vec<String>> {
@@ -100,6 +107,10 @@ impl Message {
     }
 }
 
+/// A client for the simplepush.io API
+///
+/// See: <https://simplepush.io/api> for more details
+///
 pub struct SimplePush;
 
 impl SimplePush {
@@ -122,7 +133,7 @@ impl SimplePush {
                     .take_read_buffer()
                     .take_remaining()
                     .iter()
-                    .map(|&i| i),
+                    .copied(),
             );
 
             match result {
@@ -157,25 +168,18 @@ impl SimplePush {
             msg = SimplePush::encrypt(&key[0..16], &iv, message.message.to_owned().into_bytes())
                 .expect("encryption failed!");
 
-            title = match message.title.to_owned() {
-                Some(t) => Some(
-                    SimplePush::encrypt(&key[0..16], &iv, t.into_bytes())
-                        .expect("encryption failed"),
-                ),
-                None => None,
-            };
+            title = message.title.to_owned().map(|t| {
+                SimplePush::encrypt(&key[0..16], &iv, t.into_bytes()).expect("encryption failed")
+            });
 
-            actions = match message.actions.to_owned() {
-                Some(t) => Some(
-                    t.iter()
-                        .map(|s| {
-                            SimplePush::encrypt(&key[0..16], &iv, s.clone().into_bytes())
-                                .expect("encryption failed")
-                        })
-                        .collect(),
-                ),
-                None => None,
-            };
+            actions = message.actions.to_owned().map(|t| {
+                t.iter()
+                    .map(|s| {
+                        SimplePush::encrypt(&key[0..16], &iv, s.clone().into_bytes())
+                            .expect("encryption failed")
+                    })
+                    .collect()
+            });
 
             message_iv = Some(SimplePush::hexify(iv.to_vec()).to_ascii_uppercase());
             encrypted = Some(true);
@@ -221,11 +225,38 @@ impl SimplePush {
         Ok(())
     }
 
+    /// Sends a notification message through the simplepush.io API
+    ///
+    /// Sending a notification
+    ///
+    /// ```no_run
+    ///    use simplepush_rs::{Message, SimplePush};
+    ///    let _ = SimplePush::send(Message::new(
+    ///         "SIMPLE_PUSH_KEY",
+    ///         Some("title"),
+    ///         "test message",
+    ///         Some("alert"),
+    ///         Some(vec!["yes", "no"]),
+    ///     ));
+    ///```
+    ///
+    /// Sending a notification with encryption
+    ///
+    /// ```no_run
+    ///    use simplepush_rs::{Message, SimplePush};
+    ///    let _ = SimplePush::send(Message::new_with_encryption(
+    ///         "SIMPLE_PUSH_KEY",
+    ///         Some("title"),
+    ///         "test message",
+    ///         Some("alert"),
+    ///         Some(vec!["yes", "no"]),
+    ///         "ENCRYPTION_KEY",
+    ///         Some("SALT"),
+    ///     ));
+    ///```
+    ///
     pub fn send(message: Message) -> Result<(), String> {
-        match SimplePush::validate(&message) {
-            Err(e) => return Err(e),
-            _ => {}
-        }
+        SimplePush::validate(&message)?;
 
         let client = reqwest::blocking::Client::new();
         let response = client
@@ -252,13 +283,13 @@ mod tests {
     #[test]
     fn test_empty_key() {
         let result = SimplePush::send(Message::new("", Some("title"), "message", None, None));
-        assert!(result.is_err_and(|e| e == String::from("key is required")));
+        assert!(result.is_err_and(|e| e == *"key is required"));
     }
 
     #[test]
     fn test_empty_message() {
         let result = SimplePush::send(Message::new("key", None, "", None, None));
-        assert!(result.is_err_and(|e| e == String::from("a message or title is required")));
+        assert!(result.is_err_and(|e| e == *"a message or title is required"));
     }
 
     #[test]
@@ -266,6 +297,6 @@ mod tests {
         let result = SimplePush::send(Message::new_with_encryption(
             "key", None, "message", None, None, "", None,
         ));
-        assert!(result.is_err_and(|e| e == String::from("password is required for encryption")));
+        assert!(result.is_err_and(|e| e == *"password is required for encryption"));
     }
 }
