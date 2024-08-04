@@ -8,7 +8,7 @@ readme = "README.md"
 homepage = "https://github.com/jasonfagan/simplepush-rs"
 repository = "https://github.com/jasonfagan/simplepush-rs.git"
 license = "MIT"
-documentation = "https://docs.rs/simplepush"
+documentation = "https://docs.rs/simplepush-rs"
 categories = ["web-programming::http-client"]
 keywords = ["simplepush", "notification"]
 
